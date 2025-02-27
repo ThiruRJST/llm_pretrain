@@ -165,6 +165,8 @@ if __name__ == "__main__":
 
     # 2. Verify that pad token is set
     logger.info(f"Pad token: '{tokenizer.pad_token}', ID: {tokenizer.pad_token_id}")
+    model.resize_token_embeddings(len(tokenizer))
+    model.init_weights()
 
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
@@ -188,6 +190,9 @@ if __name__ == "__main__":
         save_steps=5_000,
         fp16=True,
         push_to_hub=True,
+        gradient_checkpointing=True,
+        max_grad_norm=1.0,
+        optim="adamw_torch"
     )
 
     trainer = Trainer(
