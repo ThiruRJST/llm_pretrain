@@ -7,15 +7,12 @@ import time
 from datasets import load_dataset
 from src import logger
 from src.configs.configuration import Config
-from src.tamil_tokenizer.tamil_tokenizer import (
-    train_custom_tokenizer,
-    tokenize
-)
+from src.tamil_tokenizer.tamil_tokenizer import train_custom_tokenizer, tokenize
 from src.utils.common import (
     create_directory,
     chunk_filereader,
     split_train_test,
-    filter_sentences
+    filter_sentences,
 )
 from tqdm import tqdm
 from transformers import (
@@ -24,37 +21,41 @@ from transformers import (
     GPT2LMHeadModel,
     DataCollatorForLanguageModeling,
     TrainingArguments,
-    Trainer
+    Trainer,
 )
 
 
-
 def data_splitting(data_path: str):
-    #data splitting
+    # data splitting
     if not os.path.exists(f"dataset/v2/tamil_train.txt"):
 
-        #create a new version of the dataset
+        # create a new version of the dataset
         create_directory(dir_name="dataset/v2")
 
         split_dict = {
             "train": open("dataset/v2/tamil_train.txt", "w", encoding="utf-8"),
-            "test": open("dataset/v2/tamil_test.txt", "w", encoding="utf-8")
+            "test": open("dataset/v2/tamil_test.txt", "w", encoding="utf-8"),
         }
 
         context_length = 512
 
-        #reading the files as blocks
+        # reading the files as blocks
         with open(data_path, "r", encoding="utf-8") as datafile:
-            with tqdm(total=os.path.getsize(data_path), unit="B", unit_scale=True, desc="Reading..") as pbar:
+            with tqdm(
+                total=os.path.getsize(data_path),
+                unit="B",
+                unit_scale=True,
+                desc="Reading..",
+            ) as pbar:
                 for chunk in chunk_filereader(fp=datafile, block_size=8192000):
 
                     if len(chunk) >= context_length:
                         split = split_train_test()
                         split_dict[split].write(chunk)
-                    
+
                     pbar.update(len(chunk.encode("utf-8")))
-            
-            #closing the files
+
+            # closing the files
             for file in split_dict.values():
                 file.close()
 
@@ -66,58 +67,62 @@ def data_splitting(data_path: str):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Tamil Language Model")
-    parser.add_argument("--raw_data", required=True, type=str, default="dataset/v2/tamil_train.txt", help="Path to the raw data")
+    parser.add_argument(
+        "--raw_data", required=True, type=str, help="Path to the raw data"
+    )
 
-    #parsing the arguments
+    # parsing the arguments
     args = parser.parse_args()
-
-    #cleaning raw data
     logger.info("Cleaning raw data")
-    filter_sentences(file_path=args.raw_data, max_len=Config.context_length, output_file=Config.filtered_data)
+    filter_sentences(
+        file_path=args.raw_data,
+        max_len=Config.context_length,
+        output_file=Config.filtered_data,
+    )
     logger.info("Data cleaning completed")
 
-
-    #data splitting
+    # data splitting
     logger.info("Splitting data")
     data_splitting(data_path=Config.filtered_data)
 
-    #Training a custom tokenizer on the filtered data
+    # Training a custom tokenizer on the filtered data
     logger.info("Training custom tokenizer - ByteLevelBPE")
-    logger.info("This may take a while as it trains only on CPU, take a sip of coffee... :)")
-    train_custom_tokenizer(filtered_datapath=Config.filtered_data, vocab_size=Config.vocab_size, save_path=Config.tokenizer_path)
+    logger.info(
+        "This may take a while as it trains only on CPU, take a sip of coffee... :)"
+    )
+    train_custom_tokenizer(
+        filtered_datapath=Config.filtered_data,
+        vocab_size=Config.vocab_size,
+        save_path=Config.tokenizer_path,
+    )
     logger.info("Custom tokenizer trained successfully")
 
-    #Training pipeline setup
-    data_files ={
+    # Training pipeline setup
+    data_files = {
         "train": "dataset/v2/tamil_train.txt",
         "test": "dataset/v2/tamil_test.txt",
     }
 
-    raw_dataset = load_dataset(
-        path="minimalist-ai/TamilDataset",
-        streaming=True        
-    )
+    raw_dataset = load_dataset("text", data_files=data_files, streaming=True)
 
-    #loading the custom tokenizer
+    # loading the custom tokenizer
     logger.info("Loading custom tokenizer")
     tokenizer = PreTrainedTokenizerFast(Config.tokenizer_path)
 
-    #tokenizing the dataset
+    # tokenizing the dataset
     logger.info("Tokenizing the dataset")
-    tokenized_dataset = raw_dataset.map(
-    tokenize,
-    batched=True,
-    remove_columns=["text"])
+    tokenized_dataset = raw_dataset.map(tokenize, batched=True, remove_columns=["text"])
     logger.info("Dataset tokenized successfully")
 
-    #loading the model
+    # loading the model
     logger.info("Loading GPT-2 model")
     config = AutoConfig.from_pretrained(
         "gpt2",
         vocab_size=len(tokenizer),
         n_ctx=Config.context_length,
         bos_token_id=tokenizer.bos_token_id,
-        eos_token_id=tokenizer.eos_token_id,)
+        eos_token_id=tokenizer.eos_token_id,
+    )
 
     model = GPT2LMHeadModel(config)
     model_size = sum(t.numel() for t in model.parameters())
@@ -130,24 +135,22 @@ if __name__ == "__main__":
         # Method 1: Set pad_token to eos_token
         tokenizer.pad_token = tokenizer.eos_token
         tokenizer.pad_token_id = tokenizer.eos_token_id
-        
+
         # Method 2: If Method 1 doesn't work, try adding a special token
         # This is more reliable as it modifies the tokenizer's vocabulary
-        special_tokens_dict = {'pad_token': '[PAD]'}
+        special_tokens_dict = {"pad_token": "[PAD]"}
         num_added_toks = tokenizer.add_special_tokens(special_tokens_dict)
         print(f"Added {num_added_toks} special tokens: {special_tokens_dict}")
-    
+
     # If working with a model, resize embeddings to match new vocabulary size
     # model.resize_token_embeddings(len(tokenizer))
 
     # 2. Verify that pad token is set
     logger.info(f"Pad token: '{tokenizer.pad_token}', ID: {tokenizer.pad_token_id}")
 
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False)
-    
-    #training the model
+    data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+
+    # training the model
     logger.info("Training the model")
 
     args = TrainingArguments(

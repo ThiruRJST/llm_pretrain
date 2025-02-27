@@ -8,10 +8,8 @@ logging.basicConfig(
     format=str_format,
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(
-            filename="../logs/logging.log"
-        )
-    ]
+        logging.FileHandler(filename="../logs/logging.log"),
+    ],
 )
 
 logger = logging.getLogger(__name__)
