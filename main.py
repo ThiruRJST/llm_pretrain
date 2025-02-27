@@ -7,7 +7,7 @@ import time
 from datasets import load_dataset
 from src import logger
 from src.configs.configuration import Config
-from src.tamil_tokenizer.tamil_tokenizer import train_custom_tokenizer, tokenize
+from src.tamil_tokenizer.tamil_tokenizer import train_custom_tokenizer
 from src.utils.common import (
     create_directory,
     chunk_filereader,
@@ -25,7 +25,17 @@ from transformers import (
 )
 
 
-def data_splitting(data_path: str):
+def filtering_and_data_splitting(data_path: str):
+
+    #Filtering
+    if not os.path.exists(Config.filtered_data):
+        logger.info("Filtering data")
+        filter_sentences(
+        file_path=data_path,
+        max_len=Config.context_length,
+        output_file=Config.filtered_data,
+    )
+
     # data splitting
     if not os.path.exists(f"dataset/v2/tamil_train.txt"):
 
@@ -64,6 +74,21 @@ def data_splitting(data_path: str):
         logger.info("Data already splitted")
 
 
+def tokenize(element):
+    outputs = tokenizer(
+        element["text"],
+        truncation=True,
+        max_length=Config.context_length,
+        return_overflowing_tokens=True,
+        return_length=True,
+    )
+
+    input_batch = []
+    for length, input_ids in zip(outputs["length"], outputs["input_ids"]):
+        if length == Config.context_length:
+            input_batch.append(input_ids)
+    return {"input_ids": input_batch}
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Tamil Language Model")
@@ -73,29 +98,22 @@ if __name__ == "__main__":
 
     # parsing the arguments
     args = parser.parse_args()
-    logger.info("Cleaning raw data")
-    filter_sentences(
-        file_path=args.raw_data,
-        max_len=Config.context_length,
-        output_file=Config.filtered_data,
-    )
-    logger.info("Data cleaning completed")
-
-    # data splitting
-    logger.info("Splitting data")
-    data_splitting(data_path=Config.filtered_data)
+    
+    logger.info(f"Starting the training pipeline with : {args}")
+    filtering_and_data_splitting(data_path=args.raw_data)
 
     # Training a custom tokenizer on the filtered data
     logger.info("Training custom tokenizer - ByteLevelBPE")
     logger.info(
         "This may take a while as it trains only on CPU, take a sip of coffee... :)"
     )
-    train_custom_tokenizer(
-        filtered_datapath=Config.filtered_data,
-        vocab_size=Config.vocab_size,
-        save_path=Config.tokenizer_path,
-    )
-    logger.info("Custom tokenizer trained successfully")
+    if not os.path.exists(Config.tokenizer_path):
+        train_custom_tokenizer(
+            filtered_datapath=Config.filtered_data,
+            vocab_size=Config.vocab_size,
+            save_path=Config.tokenizer_path,
+        )
+        logger.info("Custom tokenizer trained successfully")
 
     # Training pipeline setup
     data_files = {
@@ -107,7 +125,7 @@ if __name__ == "__main__":
 
     # loading the custom tokenizer
     logger.info("Loading custom tokenizer")
-    tokenizer = PreTrainedTokenizerFast(Config.tokenizer_path)
+    tokenizer = PreTrainedTokenizerFast(tokenizer_file=Config.tokenizer_path)
 
     # tokenizing the dataset
     logger.info("Tokenizing the dataset")
@@ -155,11 +173,12 @@ if __name__ == "__main__":
 
     args = TrainingArguments(
         output_dir="artifacts",
-        per_device_train_batch_size=32,
-        per_device_eval_batch_size=32,
+        per_device_train_batch_size=8,
+        per_device_eval_batch_size=8,
         evaluation_strategy="steps",
         eval_steps=5_000,
         logging_steps=5_000,
+        max_steps=10_000,
         gradient_accumulation_steps=8,
         num_train_epochs=1,
         weight_decay=0.1,

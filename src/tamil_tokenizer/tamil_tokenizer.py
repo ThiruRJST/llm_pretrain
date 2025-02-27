@@ -32,19 +32,3 @@ def train_custom_tokenizer(filtered_datapath: str, vocab_size: int, save_path: s
 
     assert decoded_text == "வணக்கம் உலகம்", "Tokenizer not trained properly"
     tamil_tokenizer.save(save_path)
-
-
-def tokenize(tokenizer, element, context_length):
-    outputs = tokenizer(
-        element["text"],
-        truncation=True,
-        max_length=context_length,
-        return_overflowing_tokens=True,
-        return_length=True,
-    )
-
-    input_batch = []
-    for length, input_ids in zip(outputs["length"], outputs["input_ids"]):
-        if length == context_length:
-            input_batch.append(input_ids)
-    return {"input_ids": input_batch}
