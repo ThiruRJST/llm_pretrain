@@ -1,9 +1,0 @@
-jupyter
-ipykernel
-jupyterlab
-pandas
-ensure
-rich
-transformers
-dvc
-dvc-s3

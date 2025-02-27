@@ -7,3 +7,6 @@ rich
 transformers
 dvc
 dvc-s3
+torch
+torchvision
+mlflow

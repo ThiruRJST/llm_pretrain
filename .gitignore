@@ -1,2 +1,10 @@
 /dataset
 venv/
+~/
+bpe_tamil_tokenizer/
+sentence_piece_tokenizer/
+.vscode/
+logs/
+.virtual_documents/
+.ipynb_checkpoints/
+__pycache__/
