@@ -4,13 +4,28 @@ import os
 import time
 
 
+from datasets import load_dataset
 from src import logger
+from src.configs.configuration import Config
+from src.tamil_tokenizer.tamil_tokenizer import (
+    train_custom_tokenizer,
+    tokenize
+)
 from src.utils.common import (
     create_directory,
     chunk_filereader,
-    split_train_test
+    split_train_test,
+    filter_sentences
 )
 from tqdm import tqdm
+from transformers import (
+    PreTrainedTokenizerFast,
+    AutoConfig,
+    GPT2LMHeadModel,
+    DataCollatorForLanguageModeling,
+    TrainingArguments,
+    Trainer
+)
 
 
 
@@ -56,5 +71,115 @@ if __name__ == "__main__":
     #parsing the arguments
     args = parser.parse_args()
 
+    #cleaning raw data
+    logger.info("Cleaning raw data")
+    filter_sentences(file_path=args.raw_data, max_len=Config.context_length, output_file=Config.filtered_data)
+    logger.info("Data cleaning completed")
+
+
     #data splitting
-    data_splitting(data_path=args.raw_data)
+    logger.info("Splitting data")
+    data_splitting(data_path=Config.filtered_data)
+
+    #Training a custom tokenizer on the filtered data
+    logger.info("Training custom tokenizer - ByteLevelBPE")
+    logger.info("This may take a while as it trains only on CPU, take a sip of coffee... :)")
+    train_custom_tokenizer(filtered_datapath=Config.filtered_data, vocab_size=Config.vocab_size, save_path=Config.tokenizer_path)
+    logger.info("Custom tokenizer trained successfully")
+
+    #Training pipeline setup
+    data_files ={
+        "train": "dataset/v2/tamil_train.txt",
+        "test": "dataset/v2/tamil_test.txt",
+    }
+
+    raw_dataset = load_dataset(
+        path="minimalist-ai/TamilDataset",
+        streaming=True        
+    )
+
+    #loading the custom tokenizer
+    logger.info("Loading custom tokenizer")
+    tokenizer = PreTrainedTokenizerFast(Config.tokenizer_path)
+
+    #tokenizing the dataset
+    logger.info("Tokenizing the dataset")
+    tokenized_dataset = raw_dataset.map(
+    tokenize,
+    batched=True,
+    remove_columns=["text"])
+    logger.info("Dataset tokenized successfully")
+
+    #loading the model
+    logger.info("Loading GPT-2 model")
+    config = AutoConfig.from_pretrained(
+        "gpt2",
+        vocab_size=len(tokenizer),
+        n_ctx=Config.context_length,
+        bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,)
+
+    model = GPT2LMHeadModel(config)
+    model_size = sum(t.numel() for t in model.parameters())
+    print(f"GPT-2 size: {model_size/1000**2:.1f}M parameters")
+
+    logger.info("Model loaded successfully")
+
+    # 1. First, add the pad token more explicitly
+    if tokenizer.pad_token is None:
+        # Method 1: Set pad_token to eos_token
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        
+        # Method 2: If Method 1 doesn't work, try adding a special token
+        # This is more reliable as it modifies the tokenizer's vocabulary
+        special_tokens_dict = {'pad_token': '[PAD]'}
+        num_added_toks = tokenizer.add_special_tokens(special_tokens_dict)
+        print(f"Added {num_added_toks} special tokens: {special_tokens_dict}")
+    
+    # If working with a model, resize embeddings to match new vocabulary size
+    # model.resize_token_embeddings(len(tokenizer))
+
+    # 2. Verify that pad token is set
+    logger.info(f"Pad token: '{tokenizer.pad_token}', ID: {tokenizer.pad_token_id}")
+
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False)
+    
+    #training the model
+    logger.info("Training the model")
+
+    args = TrainingArguments(
+        output_dir="artifacts",
+        per_device_train_batch_size=32,
+        per_device_eval_batch_size=32,
+        evaluation_strategy="steps",
+        eval_steps=5_000,
+        logging_steps=5_000,
+        gradient_accumulation_steps=8,
+        num_train_epochs=1,
+        weight_decay=0.1,
+        warmup_steps=1_000,
+        lr_scheduler_type="cosine",
+        learning_rate=5e-4,
+        save_steps=5_000,
+        fp16=True,
+        push_to_hub=True,
+    )
+
+    trainer = Trainer(
+        model=model,
+        tokenizer=tokenizer,
+        args=args,
+        data_collator=data_collator,
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["test"],
+    )
+
+    trainer.train()
+    logger.info("Training completed successfully")
+    trainer.save_model("artifacts")
+    logger.info("Model saved successfully")
+    logger.info("Training pipeline completed successfully")
+    logger.info("Exiting the program")

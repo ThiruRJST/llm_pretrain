@@ -1,5 +1,7 @@
+import mmap
 import numpy as np
 import os
+import re
 
 from ensure import ensure_annotations
 from pathlib import Path
@@ -35,3 +37,25 @@ def split_train_test():
         return 'train'
     else:
         return 'test'
+
+@ensure_annotations
+def clean_whitespaces(text: str):
+    return re.sub(r"\s+", " ", text).strip()
+
+@ensure_annotations
+def filter_sentences(file_path, max_len, output_file):
+    with open(file_path, "r", encoding="utf-8") as f:
+
+        mmapped_file = mmap.mmap(
+            f.fileno(),
+            0,
+            access=mmap.ACCESS_READ
+        )
+        with open(output_file, "w") as out_file:
+            for line in iter(mmapped_file.readline, b""):
+                sentence = line.decode("utf-8").strip()
+                sentence = clean_whitespaces(sentence)
+                if sentence:
+                    if len(sentence) >= max_len:
+                        out_file.write(sentence + "\n")
+        mmapped_file.close()
