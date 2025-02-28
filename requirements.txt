@@ -10,3 +10,5 @@ dvc-s3
 torch
 torchvision
 mlflow
+tiktoken
+datasets
