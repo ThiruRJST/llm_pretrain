@@ -8,3 +8,6 @@ logs/
 .virtual_documents/
 .ipynb_checkpoints/
 __pycache__/
+mlruns/
+artifacts/
+gen_texts/

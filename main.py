@@ -27,14 +27,14 @@ from transformers import (
 
 def filtering_and_data_splitting(data_path: str):
 
-    #Filtering
+    # Filtering
     if not os.path.exists(Config.filtered_data):
         logger.info("Filtering data")
         filter_sentences(
-        file_path=data_path,
-        max_len=Config.context_length,
-        output_file=Config.filtered_data,
-    )
+            file_path=data_path,
+            max_len=Config.context_length,
+            output_file=Config.filtered_data,
+        )
 
     # data splitting
     if not os.path.exists(f"dataset/v2/tamil_train.txt"):
@@ -89,6 +89,7 @@ def tokenize(element):
             input_batch.append(input_ids)
     return {"input_ids": input_batch}
 
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Tamil Language Model")
@@ -98,7 +99,7 @@ if __name__ == "__main__":
 
     # parsing the arguments
     args = parser.parse_args()
-    
+
     logger.info(f"Starting the training pipeline with : {args}")
     filtering_and_data_splitting(data_path=args.raw_data)
 
@@ -192,7 +193,7 @@ if __name__ == "__main__":
         push_to_hub=True,
         gradient_checkpointing=True,
         max_grad_norm=1.0,
-        optim="adamw_torch"
+        optim="adamw_torch",
     )
 
     trainer = Trainer(
